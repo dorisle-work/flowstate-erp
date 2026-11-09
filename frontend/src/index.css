@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #f5f6f8;
+    color: #1c1f26;
+    font-family: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  ::selection {
+    background: #e7f8ef;
+    color: #1c1f26;
+  }
+
+  :focus-visible {
+    outline: 2px solid #1c1f26;
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c5c8ce transparent;
+  }
+}
+
+@keyframes flow-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(91, 140, 255, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(91, 140, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(91, 140, 255, 0);
+  }
+}
+
+.step-pulse {
+  animation: flow-pulse 1.8s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-pulse,
+  .animate-pulse {
+    animation: none;
+  }
+}
+
+/* Native select arrows ignore padding and sit on the right edge.
+   This rule is unlayered so it wins over per-page padding utilities. */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%231c1f26' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 14px 14px;
+  padding-inline-end: 44px;
+}
+
+select:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select.select-lock {
+  background-image: none;
+}
+
+select::-ms-expand {
+  display: none;
+}
