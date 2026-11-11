@@ -1,111 +1,109 @@
-# flowstate-erp
+# FlowState ERP
 
-A resilient micro-ERP engine featuring dynamic RBAC, finite state machine approval workflows, and an ACID-compliant stock ledger built with Laravel, MySQL, and Redis. The React console lives in `frontend/`.
+Portfolio-grade micro-ERP for multi-branch order approval and inventory control.
+
+**Live:** [flowstate.dorisle.tech](https://flowstate.dorisle.tech) · **API docs:** [/api/documentation](https://flowstate.dorisle.tech/api/documentation) · **Repo:** [dorisle-work/flowstate-erp](https://github.com/dorisle-work/flowstate-erp)
+
+> One-liner for CV: *Laravel 11 + React — branch RBAC, order finite-state machine, ACID stock ledger, idempotent Sanctum API, OpenAPI.*
+
+## Why this exists
+
+Branch sales staff create drafts; managers approve; warehouse dispatches. Illegal status jumps, double-clicks, and silent stock drift are the failure modes this system is built to prevent.
+
+| Hiring signal | Where it shows up |
+| --- | --- |
+| Domain modeling | Order FSM + approval audit log |
+| Data integrity | Immutable inventory ledger (no “edit quantity in place”) |
+| API safety | `X-Idempotency-Key` on mutating routes → `409` on replay |
+| Authorization | Spatie-style permissions; cost/margin gated by `orders.view_cost_price` |
+| Full-stack delivery | Laravel `/api/v1` + React console + L5-Swagger |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  ui[React_console] -->|Bearer_Sanctum| api[Laravel_API_v1]
+  api --> fsm[Order_FSM]
+  api --> rbac[Branch_RBAC]
+  api --> ledger[Stock_ledger]
+  api --> idemp[Idempotency_store]
+  ledger --> mysql[(MySQL)]
+  idemp --> store[(Redis_or_DB)]
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> draft
+  draft --> pending_approval: submit
+  pending_approval --> approved: approve
+  pending_approval --> rejected: reject
+  approved --> dispatched: dispatch
+  dispatched --> completed: complete
+  draft --> cancelled: cancel
+  pending_approval --> cancelled: cancel
+  rejected --> [*]
+  cancelled --> [*]
+  completed --> [*]
+```
+
+Stock reservation / deduction happens only on legal transitions (not on arbitrary UI edits). Reject and cancel require an audit note (≥ 10 characters).
 
 ## Stack
 
-- PHP 8.2+ / Laravel 11
-- MySQL 8.0
-- Redis 7
-- React + Vite + TypeScript (`frontend/`)
+- **API:** PHP 8.2+ / Laravel 11 / Sanctum / MySQL  
+- **Console:** React + Vite + TypeScript (`frontend/`)  
+- **Local extras:** Redis (session, cache, queue, idempotency)  
+- **Hostinger production:** same origin UI + `/api`; idempotency/cache/session on **database** (no Redis)
 
-## Run with Docker
+## Demo
 
-```bash
-cp .env.example .env
-php artisan key:generate
-docker compose up -d --build
-docker compose exec app php artisan migrate --seed
-```
-
-The API listens on `http://localhost:8000`. MySQL is published on host port `3307` so it does not collide with a local XAMPP server.
-
-## Run locally
-
-This machine uses Homebrew PHP. XAMPP PHP 7.4 cannot run the project.
-
-MySQL 8.0 listens on `127.0.0.1:3307` (user `flowstate`, password `secret`) so MariaDB on 3306 stays free. Redis listens on `127.0.0.1:6379`. Session, cache, queue, and idempotency use Redis.
-
-```bash
-brew services start mysql@8.0
-brew services start redis
-/opt/homebrew/bin/php /opt/homebrew/bin/composer install
-cp .env.example .env
-/opt/homebrew/bin/php artisan key:generate
-/opt/homebrew/bin/php artisan migrate --seed
-/opt/homebrew/bin/php artisan serve
-```
-
-## Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://127.0.0.1:5173`.
-
-By default the UI uses seeded mock data (`VITE_USE_MOCK` is not `false`). To talk to the Laravel API:
-
-```bash
-# frontend/.env.local
-VITE_USE_MOCK=false
-VITE_API_URL=http://127.0.0.1:8000
-```
-
-Set `FRONTEND_URL` in the Laravel `.env` so CORS allows the Vite origin.
-
-## Demo accounts
-
-Password for every account is `password`.
+Password for every seeded account: `password`.
 
 | Email | Role | Branch |
 | --- | --- | --- |
-| superadmin@flowstate.test | Super Admin | all branches |
-| manager.hn@flowstate.test | Branch Manager | Hà Nội |
-| manager.hcm@flowstate.test | Branch Manager | TP.HCM |
-| sales.hn@flowstate.test | Sales Staff | Hà Nội |
-| sales.hcm@flowstate.test | Sales Staff | TP.HCM |
-| kho.dn@flowstate.test | Thủ kho | Đà Nẵng |
+| `superadmin@flowstate.test` | Super Admin | all |
+| `manager.hn@flowstate.test` | Branch Manager | Hà Nội |
+| `manager.hcm@flowstate.test` | Branch Manager | TP.HCM |
+| `sales.hn@flowstate.test` | Sales Staff | Hà Nội |
+| `sales.hcm@flowstate.test` | Sales Staff | TP.HCM |
+| `kho.dn@flowstate.test` | Thủ kho | Đà Nẵng |
 
-## API docs (Swagger / OpenAPI)
+### Smoke checklist (live or local)
 
-Interactive docs (L5-Swagger):
+1. Login as `sales.hn@flowstate.test` → create multi-line draft → submit.  
+2. Login as `manager.hn@flowstate.test` → approve (or reject with note).  
+3. Dispatch → complete; confirm inventory movement on ledger screen.  
+4. Login as sales → confirm cost/margin hidden; Super Admin sees them.  
+5. Replay a mutating request with the same `X-Idempotency-Key` → `409`.  
+6. Open [/api/documentation](https://flowstate.dorisle.tech/api/documentation) → Authorize with login token → call `GET /api/v1/orders`.
 
-- Local UI: [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:8000/api/documentation)
-- Spec JSON: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- Production (Hostinger): `https://flowstate.dorisle.tech/api/documentation`
+## Architecture decisions
 
-Regenerate after annotation changes:
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Order status | Explicit FSM + actions | Illegal transitions fail in the domain layer, not “if status ==” in controllers |
+| Stock | Append-only ledger | Auditable quantity history; UI never writes balances directly |
+| Mutations | Idempotency middleware | Protects double-submit and flaky clients |
+| Permissions | Permission matrix API + UI | Recruiters can toggle grants and see cost fields appear/disappear |
+| Frontend default | Mock adapter (`VITE_USE_MOCK`) | Demo UI without PHP; production Hostinger build sets mock off |
+| Hostinger hosting | Same origin `/api` | Nested subdomain `api.flowstate…` rejected by Hostinger wizard |
+| Shared hosting | `IDEMPOTENCY_STORE=database` | No Redis on typical shared plans |
 
-```bash
-php artisan l5-swagger:generate
-```
+More product intent: [`PRODUCT.md`](PRODUCT.md).
 
-Local `.env` can set `L5_SWAGGER_GENERATE_ALWAYS=true` and `L5_SWAGGER_CONST_HOST=http://127.0.0.1:8000`. In Swagger UI, call `POST /api/v1/auth/login`, then **Authorize** with the returned Bearer token. Send `X-Idempotency-Key` on mutating routes that use the idempotency middleware.
+## API
 
-## Order API
+Authenticate: `POST /api/v1/auth/login` → `Authorization: Bearer {token}`.
 
-Authenticate with `POST /api/v1/auth/login`, then send `Authorization: Bearer {token}`.
-
-Mutating order routes require `X-Idempotency-Key` (8–128 characters). A repeated key while the first request is still stored returns `409`.
+Mutating routes behind `idempotency` middleware require `X-Idempotency-Key` (8–128 chars).
 
 ```text
-GET  /api/v1/branches
-GET  /api/v1/customers
-GET  /api/v1/products
-GET  /api/v1/accounts
-GET  /api/v1/roles-matrix
-PATCH /api/v1/roles-matrix
-GET  /api/v1/inventories
-POST /api/v1/orders
-POST /api/v1/orders/{order}/submit
-POST /api/v1/orders/{order}/approve
-POST /api/v1/orders/{order}/reject
-POST /api/v1/orders/{order}/dispatch
-POST /api/v1/orders/{order}/complete
-POST /api/v1/orders/{order}/cancel
+GET    /api/v1/branches|customers|products|accounts|inventories|orders|notifications
+POST   /api/v1/orders
+PATCH  /api/v1/orders/{order}          # draft only
+POST   /api/v1/orders/{order}/{submit|approve|reject|dispatch|complete|cancel}
+POST   /api/v1/inventories/adjust|receive
+PATCH  /api/v1/roles-matrix
 ```
 
 Create-order body accepts camelCase from the UI:
@@ -118,89 +116,93 @@ Create-order body accepts camelCase from the UI:
 }
 ```
 
-Status changes go through the state machine only:
+Swagger: local [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:8000/api/documentation) · prod [https://flowstate.dorisle.tech/api/documentation](https://flowstate.dorisle.tech/api/documentation)
 
-`draft → pending_approval → approved|rejected → dispatched → completed`
+```bash
+php artisan l5-swagger:generate
+```
 
-`cost_price` and `margin_rate` are returned only when the caller has `orders.view_cost_price`.
+## Run locally
+
+### Docker
+
+```bash
+cp .env.example .env
+php artisan key:generate
+docker compose up -d --build
+docker compose exec app php artisan migrate --seed
+```
+
+API: `http://localhost:8000` · MySQL host port `3307`.
+
+### Homebrew PHP + MySQL + Redis
+
+XAMPP PHP 7.4 cannot run this project.
+
+```bash
+brew services start mysql@8.0
+brew services start redis
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve
+```
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Live API from Vite:
+
+```bash
+# frontend/.env.local
+VITE_USE_MOCK=false
+VITE_API_URL=http://127.0.0.1:8000
+```
+
+Set `FRONTEND_URL` in Laravel `.env` for CORS.
 
 ## Deploy (Hostinger — one domain)
-
-One PHP/HTML site: **`flowstate.dorisle.tech`**
 
 | Path | Serves |
 | --- | --- |
 | `/` | React SPA (`public/client`) |
 | `/api/v1/...` | Laravel API |
-| `/api/documentation` | Swagger UI |
+| `/api/documentation` | Swagger |
 
-Hostinger blocks nested hosts like `api.flowstate.dorisle.tech`, so same-origin `/api` avoids that.
-
-Template env: [`.env.hostinger.example`](.env.hostinger.example) (`IDEMPOTENCY_STORE=database`, no Redis).
-
-### A. DNS
-
-1. Create **Trang web PHP/HTML** with domain `flowstate.dorisle.tech`.
-2. Point DNS `flowstate` → Hostinger IP; remove the Vercel CNAME.
-
-### B. Build frontend into Laravel `public/client`
+Env template: [`.env.hostinger.example`](.env.hostinger.example).
 
 ```bash
-cd frontend
-npm ci
-npm run build:hostinger
+cd frontend && npm ci && npm run build:hostinger
 ```
 
-This uses [`frontend/.env.hostinger`](frontend/.env.hostinger) (`VITE_USE_MOCK=false`, empty `VITE_API_URL` → same origin).
-
-### C. Upload vào `public_html` (không được đặt ngoài)
-
-Layout bắt buộc khi document root chỉ là `public_html`:
+Upload into `public_html` (document root cannot leave `public_html` on many plans):
 
 ```text
 public_html/
-  index.php          ← từ public/index.php
-  .htaccess          ← từ public/.htaccess
-  client/            ← từ public/client/ (npm run build:hostinger)
-  favicon.ico
-  robots.txt
-  laravel/           ← phần còn lại của project (app, bootstrap, config, vendor, …)
-    .env
-    app/
-    bootstrap/
-    ...
-    .htaccess        ← copy deploy/hostinger/laravel.htaccess (Deny from all)
+  index.php .htaccess client/ favicon.svg …
+  laravel/          # app, bootstrap, config, routes, vendor, .env, …
+    .htaccess       # deploy/hostinger/laravel.htaccess
 ```
 
-1. hPanel → MySQL: tạo DB + user.
-2. Upload **nội dung** `public/` thẳng vào `public_html/`.
-3. Upload các thư mục/file Laravel còn lại vào `public_html/laravel/`  
-   (`app`, `bootstrap`, `config`, `database`, `routes`, `storage`, `composer.json`, `composer.lock`, `artisan`, `vendor` nếu có…).  
-   **Không** upload `frontend/node_modules`.
-4. Trong `public_html/laravel/`: copy `.env.hostinger.example` → `.env`, điền DB.
-5. Copy `deploy/hostinger/laravel.htaccess` → `public_html/laravel/.htaccess`.
-6. PHP ≥ **8.2**. Terminal / SSH:
-
 ```bash
-cd ~/domains/flowstate.dorisle.tech/public_html/laravel   # chỉnh path cho đúng
+cd ~/domains/flowstate.dorisle.tech/public_html/laravel
 composer install --no-dev --optimize-autoloader
 php artisan key:generate --force
 php artisan migrate --force --seed
 php artisan l5-swagger:generate
-php artisan config:cache
-php artisan route:cache
+php artisan config:clear
+# optional after env is correct:
+# php artisan config:cache && php artisan route:cache
 ```
 
-`public/index.php` tự nhận layout này (`./laravel` thay vì `../`).
-
-### D. Smoke test
-
-1. `https://flowstate.dorisle.tech` → login `admin@flowstate.test` / `password`
-2. `https://flowstate.dorisle.tech/api/documentation`
-3. CRUD / đơn / kho must hit live API (not mock)
+`public/index.php` resolves either `../` (normal) or `./laravel` (Hostinger layout).
 
 ## Tests
 
 ```bash
-/opt/homebrew/bin/php artisan test
+php artisan test
 ```
+
+Feature coverage centers on order workflow transitions and idempotency conflicts.

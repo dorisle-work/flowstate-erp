@@ -24,7 +24,9 @@ Order status changes only through a finite state machine. Stock leaves the branc
 
 ## Operating Context
 
-Local and Vercel demos default to seeded mock data. The Laravel API lives at `/api/v1` (Sanctum bearer token, `X-Idempotency-Key` on POST/PUT/PATCH). Set `VITE_USE_MOCK=false` and `VITE_API_URL` to use the live API. Demo password for every account is `password`.
+**Production (Hostinger):** [https://flowstate.dorisle.tech](https://flowstate.dorisle.tech) serves the React console and Laravel API on the same origin (`/api/v1`, Sanctum bearer, `X-Idempotency-Key` on mutating POST/PUT/PATCH). Swagger: `/api/documentation`.
+
+**Local / Vercel demo builds** may keep seeded mock data when `VITE_USE_MOCK` is not `false`. Point Vite at a live API with `VITE_USE_MOCK=false` and `VITE_API_URL`. Demo password for every account is `password`.
 
 ## Capabilities and Constraints
 
