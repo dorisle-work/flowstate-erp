@@ -73,8 +73,9 @@ Password for every account is `password`.
 
 Interactive docs (L5-Swagger):
 
-- UI: [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:8000/api/documentation)
+- Local UI: [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:8000/api/documentation)
 - Spec JSON: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Production (Hostinger): `https://flowstate.dorisle.tech/api/documentation`
 
 Regenerate after annotation changes:
 
@@ -123,65 +124,80 @@ Status changes go through the state machine only:
 
 `cost_price` and `margin_rate` are returned only when the caller has `orders.view_cost_price`.
 
-## Deploy
+## Deploy (Hostinger — one domain)
 
-### 1. Frontend on Vercel (`flowstate.dorisle.tech`)
+One PHP/HTML site: **`flowstate.dorisle.tech`**
 
-1. Import `dorisle-work/flowstate-erp`.
-2. Root Directory: `frontend`
-3. Framework: Vite
-4. Build: `npm run build`
-5. Output: `dist`
-6. Domain: add `flowstate.dorisle.tech` and CNAME `flowstate` → `cname.vercel-dns.com`
-
-**Demo-only (current):** leave Environment Variables empty so mock mode stays on. No Laravel host is required.
-
-**Live API later:** add
-
-| Name | Value |
+| Path | Serves |
 | --- | --- |
-| `VITE_USE_MOCK` | `false` |
-| `VITE_API_URL` | `https://api.flowstate.dorisle.tech` |
+| `/` | React SPA (`public/client`) |
+| `/api/v1/...` | Laravel API |
+| `/api/documentation` | Swagger UI |
 
-Then redeploy.
+Hostinger blocks nested hosts like `api.flowstate.dorisle.tech`, so same-origin `/api` avoids that.
 
-### 2. Backend API (Laravel + MySQL + Redis)
+Template env: [`.env.hostinger.example`](.env.hostinger.example) (`IDEMPOTENCY_STORE=database`, no Redis).
 
-Vercel cannot run PHP/MySQL/Redis. Host the API on Railway, Render, Fly.io, or a VPS.
+### A. DNS
 
-Minimum production env:
+1. Create **Trang web PHP/HTML** with domain `flowstate.dorisle.tech`.
+2. Point DNS `flowstate` → Hostinger IP; remove the Vercel CNAME.
 
-```env
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://api.flowstate.dorisle.tech
-FRONTEND_URL=https://flowstate.dorisle.tech
-APP_KEY=base64:...
-DB_CONNECTION=mysql
-DB_HOST=...
-DB_PORT=3306
-DB_DATABASE=flowstate
-DB_USERNAME=...
-DB_PASSWORD=...
-REDIS_HOST=...
-SESSION_DRIVER=redis
-QUEUE_CONNECTION=redis
-CACHE_STORE=redis
-IDEMPOTENCY_STORE=redis
-```
-
-Then:
+### B. Build frontend into Laravel `public/client`
 
 ```bash
+cd frontend
+npm ci
+npm run build:hostinger
+```
+
+This uses [`frontend/.env.hostinger`](frontend/.env.hostinger) (`VITE_USE_MOCK=false`, empty `VITE_API_URL` → same origin).
+
+### C. Upload vào `public_html` (không được đặt ngoài)
+
+Layout bắt buộc khi document root chỉ là `public_html`:
+
+```text
+public_html/
+  index.php          ← từ public/index.php
+  .htaccess          ← từ public/.htaccess
+  client/            ← từ public/client/ (npm run build:hostinger)
+  favicon.ico
+  robots.txt
+  laravel/           ← phần còn lại của project (app, bootstrap, config, vendor, …)
+    .env
+    app/
+    bootstrap/
+    ...
+    .htaccess        ← copy deploy/hostinger/laravel.htaccess (Deny from all)
+```
+
+1. hPanel → MySQL: tạo DB + user.
+2. Upload **nội dung** `public/` thẳng vào `public_html/`.
+3. Upload các thư mục/file Laravel còn lại vào `public_html/laravel/`  
+   (`app`, `bootstrap`, `config`, `database`, `routes`, `storage`, `composer.json`, `composer.lock`, `artisan`, `vendor` nếu có…).  
+   **Không** upload `frontend/node_modules`.
+4. Trong `public_html/laravel/`: copy `.env.hostinger.example` → `.env`, điền DB.
+5. Copy `deploy/hostinger/laravel.htaccess` → `public_html/laravel/.htaccess`.
+6. PHP ≥ **8.2**. Terminal / SSH:
+
+```bash
+cd ~/domains/flowstate.dorisle.tech/public_html/laravel   # chỉnh path cho đúng
 composer install --no-dev --optimize-autoloader
+php artisan key:generate --force
 php artisan migrate --force --seed
+php artisan l5-swagger:generate
 php artisan config:cache
 php artisan route:cache
 ```
 
-Point a subdomain such as `api.flowstate.dorisle.tech` at that host. CORS already allows `flowstate.dorisle.tech` and `*.vercel.app`.
+`public/index.php` tự nhận layout này (`./laravel` thay vì `../`).
 
-Suggested order: deploy API → seed → set Vercel env → redeploy frontend.
+### D. Smoke test
+
+1. `https://flowstate.dorisle.tech` → login `admin@flowstate.test` / `password`
+2. `https://flowstate.dorisle.tech/api/documentation`
+3. CRUD / đơn / kho must hit live API (not mock)
 
 ## Tests
 

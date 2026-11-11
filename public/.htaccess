@@ -4,6 +4,10 @@
     </IfModule>
 
     RewriteEngine On
+    RewriteBase /
+
+    # Block direct HTTP access to the Laravel app tree (Hostinger public_html layout).
+    RewriteRule ^laravel(/|$) - [F,L]
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
@@ -18,7 +22,13 @@
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
+    # Force API (and other app) requests through Laravel even if a same-named folder exists.
+    RewriteRule ^api(?:/|$) index.php [L]
+    RewriteRule ^docs(?:/|$) index.php [L]
+    RewriteRule ^sanctum(?:/|$) index.php [L]
+    RewriteRule ^up$ index.php [L]
+
+    # Send remaining non-file requests to front controller...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]

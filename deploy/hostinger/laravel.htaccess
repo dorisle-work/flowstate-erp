@@ -1,0 +1,7 @@
+# Place this file inside public_html/laravel/.htaccess as extra protection.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>

@@ -11,6 +11,10 @@ frontend/dist
 .env
 .env.*
 !.env.example
+!.env.hostinger.example
+!frontend/.env.hostinger
+!frontend/.env.production.example
+!frontend/.env.example
 .phpactor.json
 .phpunit.result.cache
 .DS_Store
@@ -21,6 +25,7 @@ Homestead.yaml
 npm-debug.log
 yarn-error.log
 /auth.json
+/public/client
 /.fleet
 /.idea
 /.nova
