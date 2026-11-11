@@ -1,6 +1,7 @@
-import { customerByName } from './customers.ts'
+import { CUSTOMERS, customerByName } from './customers.ts'
 import { BRANCHES, branchById, PRODUCTS, type ProductSeed, userById } from './catalog.ts'
-import type { AuditLog, InventoryRow, Order, OrderItem, OrderStatus } from '../types/index.ts'
+import type { AuditLog, Customer, InventoryRow, Notice, Order, OrderItem, OrderStatus } from '../types/index.ts'
+import type { LedgerEntry } from '../types/erp.ts'
 
 interface LineSpec {
   sku: string
@@ -326,9 +327,21 @@ const SPECS: OrderSpec[] = [
   },
 ]
 
+export interface CatalogProductState {
+  id: number
+  sku: string
+  name: string
+  unitPrice: number
+  cost: number
+}
+
 export interface DemoState {
   orders: Order[]
   inventory: InventoryRow[]
+  customers: Customer[]
+  products: CatalogProductState[]
+  notices: Notice[]
+  movements: LedgerEntry[]
   idempotency: string[]
 }
 
@@ -385,5 +398,19 @@ export function createSeed(): DemoState {
     }
   }
 
-  return { orders, inventory, idempotency: [] }
+  return {
+    orders,
+    inventory,
+    customers: CUSTOMERS.map((item) => ({ ...item })),
+    products: PRODUCTS.map((item) => ({
+      id: item.id,
+      sku: item.sku,
+      name: item.name,
+      unitPrice: item.unitPrice,
+      cost: item.cost,
+    })),
+    notices: [],
+    movements: [],
+    idempotency: [],
+  }
 }

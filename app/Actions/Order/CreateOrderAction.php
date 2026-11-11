@@ -66,7 +66,12 @@ final class CreateOrderAction
 
             $order->items()->createMany($lines);
 
-            return $order->load('items');
+            return $order->load([
+                'branch',
+                'customer',
+                'items.product',
+                'approvalLogs.actor.roles',
+            ]);
         });
     }
 

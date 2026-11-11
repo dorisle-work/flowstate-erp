@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { BRANCHES } from '../../data/catalog.ts'
+import { useErp } from '../../context/ErpContext.tsx'
 import { cn } from '../../lib/utils.ts'
 import type { OrderStatus } from '../../types/index.ts'
 import { Input } from '../ui/input.tsx'
@@ -35,6 +35,7 @@ interface OrderFiltersProps {
 }
 
 export function OrderFilters(props: OrderFiltersProps) {
+  const { branches } = useErp()
   const [draft, setDraft] = useState(props.search)
 
   useEffect(() => {
@@ -81,7 +82,7 @@ export function OrderFilters(props: OrderFiltersProps) {
             onChange={(event) => props.onBranch(event.target.value === 'all' ? 'all' : Number(event.target.value))}
           >
             <option value="all">Tất cả chi nhánh</option>
-            {BRANCHES.map((branch) => (
+            {branches.map((branch) => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>
             ))}
           </Select>

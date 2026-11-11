@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { AlertTriangle, CheckCircle2, ChevronDown, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, Pencil, XCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useErp } from '../../context/ErpContext.tsx'
@@ -7,21 +7,25 @@ import { formatDate, formatMargin, formatMoney, formatQty } from '../../lib/form
 import { actionsFor, canViewCost, stockShortages, stockTone, STATUS_LABEL } from '../../lib/status.ts'
 import { cn } from '../../lib/utils.ts'
 import type { OrderAction, OrderItem } from '../../types/index.ts'
+import { Button } from '../ui/button.tsx'
 import { Skeleton } from '../ui/skeleton.tsx'
 import { ActionBar } from './ActionBar.tsx'
 import { AuditModalWithReason } from './AuditModalWithReason.tsx'
 import { CompactDataTable } from './CompactDataTable.tsx'
+import { OrderDraftDialog } from './OrderDraftDialog.tsx'
 import { OrderWorkflowStepper } from './OrderWorkflowStepper.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 
 export function OrderDetailPage() {
   const { id } = useParams()
-  const { orders, loading, user, transition } = useErp()
+  const { orders, loading, user, transition, updateOrder } = useErp()
   const order = orders.find((item) => item.code === id || String(item.id) === id)
   const [pending, setPending] = useState<OrderAction | null>(null)
   const [dialog, setDialog] = useState<Extract<OrderAction, 'reject' | 'cancel'> | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(true)
   const showCost = canViewCost(user)
+  const canEditDraft = Boolean(order?.status === 'draft' && user?.permissions.some((slug) => slug === 'orders.create' || slug === 'orders.update'))
 
   const columns = useMemo<ColumnDef<OrderItem>[]>(() => [
     {
@@ -124,6 +128,12 @@ export function OrderDetailPage() {
             <span className="font-mono text-[12px] tracking-tight">{formatDate(order.createdAt)}</span>
           </p>
         </div>
+        {canEditDraft ? (
+          <Button variant="outline" className="h-9 rounded-full px-3 text-[12px]" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-3.5 w-3.5" />
+            Sửa đơn nháp
+          </Button>
+        ) : null}
       </div>
 
       <OrderWorkflowStepper order={order} />
@@ -183,6 +193,15 @@ export function OrderDetailPage() {
         pending={pending === 'reject' || pending === 'cancel'}
         onClose={() => setDialog(null)}
         onConfirm={(note) => { if (dialog) void run(dialog, note) }}
+      />
+
+      <OrderDraftDialog
+        open={editOpen}
+        order={order}
+        onClose={() => setEditOpen(false)}
+        onSubmit={async (input) => {
+          await updateOrder(order.id, { customerId: input.customerId, lines: input.lines })
+        }}
       />
     </div>
   )

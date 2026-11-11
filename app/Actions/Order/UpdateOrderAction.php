@@ -72,7 +72,12 @@ final class UpdateOrderAction
             $locked->items()->delete();
             $locked->items()->createMany($lines);
 
-            return $locked->load('items');
+            return $locked->load([
+                'branch',
+                'customer',
+                'items.product',
+                'approvalLogs.actor.roles',
+            ]);
         });
     }
 }

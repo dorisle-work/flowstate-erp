@@ -54,7 +54,7 @@ export function PermissionsPage() {
                       <p className="text-[12px] text-slate-400">{permission.detail}</p>
                     </td>
                     {ROLES.map((role) => {
-                      const allowed = grants[role.id].includes(permission.slug)
+                      const allowed = grants[role.id]?.includes(permission.slug) ?? false
                       return (
                         <td key={role.id} className="px-3 text-center">
                           <input

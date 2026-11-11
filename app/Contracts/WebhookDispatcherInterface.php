@@ -9,5 +9,8 @@ use App\Models\Order;
 
 interface WebhookDispatcherInterface
 {
-    public function dispatch(Order $order, OrderStatus $from, OrderStatus $to): void;
+    /**
+     * @return 'sent'|'skipped'
+     */
+    public function dispatch(Order $order, OrderStatus $from, OrderStatus $to): string;
 }

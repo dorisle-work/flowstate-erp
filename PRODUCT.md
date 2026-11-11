@@ -24,13 +24,15 @@ Order status changes only through a finite state machine. Stock leaves the branc
 
 ## Operating Context
 
-Local demo runs against seeded mock data. The Laravel API lives at `/api/v1` (Sanctum bearer token, `X-Idempotency-Key` on POST/PUT/PATCH). Demo password for every account is `password`.
+Local and Vercel demos default to seeded mock data. The Laravel API lives at `/api/v1` (Sanctum bearer token, `X-Idempotency-Key` on POST/PUT/PATCH). Set `VITE_USE_MOCK=false` and `VITE_API_URL` to use the live API. Demo password for every account is `password`.
 
 ## Capabilities and Constraints
 
-- Roles: Super Admin, Branch Manager, Sales Staff.
+- Roles: Super Admin, Branch Manager, Sales Staff, Thủ kho.
+- Branches: Hà Nội, TP.HCM, Đà Nẵng.
+- Customers are branch-scoped; draft orders pick a customer and one or more product lines.
 - Status path: draft → pending_approval → approved → dispatched → completed. Reject and cancel are terminal.
-- Sales staff submit and cancel drafts. Managers approve, reject, and dispatch. Super Admin can run every legal transition.
+- Sales staff submit and cancel drafts. Managers approve, reject, and dispatch. Warehouse staff can dispatch. Super Admin can run every legal transition.
 - Reject and cancel require an audit note of at least 10 characters.
 - Margin and cost stay hidden without `orders.view_cost_price`.
 - Branch-scoped users cannot switch branch. Super Admin can.
@@ -38,11 +40,11 @@ Local demo runs against seeded mock data. The Laravel API lives at `/api/v1` (Sa
 
 ## Brand Commitments
 
-Name: FlowState ERP. The working palette is ink `#043D5D` and tide `#17AFAF` on a `#F4FBFB` canvas. Status chips stay slate, amber, blue, emerald, and rose. Type is Be Vietnam Pro, including codes and amounts.
+Name: FlowState ERP. Working chrome is charcoal ink `#1c1f26` on canvas `#f5f6f8` with mint accent `#3ddc97`. Status chips stay slate, amber, blue, emerald, and rose. Type is Be Vietnam Pro, including codes and amounts.
 
 ## Evidence on Hand
 
-Backend domain and demo accounts live in this repository (`database/seeders`, `routes/api.php`). The frontend ships its own mock seed so the screens run without that API. No customer logos or production order exports are in the repo; mock orders are labeled by the demo login.
+Backend domain and demo accounts live in this repository (`database/seeders`, `routes/api.php`). Customers, products, inventories, accounts, and the roles matrix are exposed under `/api/v1`. The frontend ships a mock adapter so screens still run without that API. No customer logos or production order exports are in the repo; mock orders are labeled by the demo login.
 
 ## Product Principles
 

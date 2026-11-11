@@ -20,6 +20,8 @@ class RoleAndPermissionSeeder extends Seeder
             );
         });
 
+        $allIds = $permissions->pluck('id');
+
         $superAdmin = Role::query()->updateOrCreate(
             ['slug' => 'super-admin'],
             ['name' => 'Super Admin'],
@@ -32,9 +34,13 @@ class RoleAndPermissionSeeder extends Seeder
             ['slug' => 'sales-staff'],
             ['name' => 'Sales Staff'],
         );
+        $warehouse = Role::query()->updateOrCreate(
+            ['slug' => 'warehouse'],
+            ['name' => 'Thủ kho'],
+        );
 
-        $superAdmin->permissions()->sync($permissions->pluck('id'));
-        $branchManager->permissions()->sync($permissions->pluck('id'));
+        $superAdmin->permissions()->sync($allIds);
+        $branchManager->permissions()->sync($allIds);
         $salesStaff->permissions()->sync(
             $permissions
                 ->whereIn('slug', [
@@ -43,6 +49,16 @@ class RoleAndPermissionSeeder extends Seeder
                     PermissionEnum::OrdersUpdate->value,
                     PermissionEnum::OrdersCancel->value,
                     PermissionEnum::InventoryView->value,
+                ])
+                ->pluck('id'),
+        );
+        $warehouse->permissions()->sync(
+            $permissions
+                ->whereIn('slug', [
+                    PermissionEnum::OrdersView->value,
+                    PermissionEnum::OrdersDispatch->value,
+                    PermissionEnum::InventoryView->value,
+                    PermissionEnum::InventoryManualAdjust->value,
                 ])
                 ->pluck('id'),
         );

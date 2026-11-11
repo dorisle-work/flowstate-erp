@@ -12,15 +12,20 @@ use Illuminate\Support\Facades\Log;
 
 final class TelegramWebhookDispatcher implements WebhookDispatcherInterface
 {
-    public function dispatch(Order $order, OrderStatus $from, OrderStatus $to): void
+    public function dispatch(Order $order, OrderStatus $from, OrderStatus $to): string
     {
         $token = config('services.telegram.bot_token');
         $chatId = config('services.telegram.chat_id');
+        $customer = $order->relationLoaded('customer')
+            ? $order->customer?->name
+            : $order->customer()->value('name');
+
         $text = sprintf(
-            'FlowState order %s moved from %s to %s (branch %d, total %s).',
+            "FlowState ERP\nĐơn %s\n%s → %s\nKhách: %s\nChi nhánh #%d\nThành tiền: %s",
             $order->code,
             $from->value,
             $to->value,
+            $customer ?: '—',
             $order->branch_id,
             $order->total_amount,
         );
@@ -32,7 +37,7 @@ final class TelegramWebhookDispatcher implements WebhookDispatcherInterface
                 'to' => $to->value,
             ]);
 
-            return;
+            return 'skipped';
         }
 
         Http::timeout(5)
@@ -41,5 +46,7 @@ final class TelegramWebhookDispatcher implements WebhookDispatcherInterface
                 'text' => $text,
             ])
             ->throw();
+
+        return 'sent';
     }
 }

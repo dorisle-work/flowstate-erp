@@ -1,9 +1,35 @@
 import axios from 'axios'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { loadGrants, saveGrants } from '../data/access.ts'
-import { createOrderRequest, fetchInventory, fetchOrders, loginRequest, transitionRequest } from '../lib/apiClient.ts'
-import { readToken, userFromToken, writeToken } from '../lib/session.ts'
-import type { InventoryRow, Notice, Order, OrderAction, User, UserRole } from '../types/index.ts'
+import { BRANCHES, PRODUCTS } from '../data/catalog.ts'
+import { CUSTOMERS } from '../data/customers.ts'
+import {
+  adjustStockRequest,
+  createOrderRequest,
+  deleteCustomerRequest,
+  deleteProductRequest,
+  fetchAccounts,
+  fetchBranches,
+  fetchCustomers,
+  fetchInventory,
+  fetchNotifications,
+  fetchOrders,
+  fetchProducts,
+  fetchRolesMatrix,
+  fetchStockMovements,
+  loginRequest,
+  meRequest,
+  patchRoleGrant,
+  receiveStockRequest,
+  saveCustomerRequest,
+  saveProductRequest,
+  transitionRequest,
+  updateOrderRequest,
+} from '../lib/apiClient.ts'
+import { USE_MOCK } from '../lib/runtime.ts'
+import { readToken, userFromToken, writeToken, writeUser } from '../lib/session.ts'
+import type { LedgerEntry } from '../types/erp.ts'
+import type { Branch, Customer, InventoryRow, Notice, Order, OrderAction, User, UserRole } from '../types/index.ts'
 
 interface Toast {
   id: number
@@ -11,15 +37,29 @@ interface Toast {
   message: string
 }
 
+export interface CatalogProduct {
+  id: number
+  sku: string
+  name: string
+  unitPrice: number
+  cost: number
+}
+
 interface ErpValue {
   user: User | null
   ready: boolean
   orders: Order[]
   inventory: InventoryRow[]
+  customers: Customer[]
+  products: CatalogProduct[]
+  branches: Branch[]
+  accounts: User[]
+  movements: LedgerEntry[]
   loading: boolean
   branchScope: number | 'all'
   setBranchScope: (value: number | 'all') => void
   notices: Notice[]
+  webhookConfigured: boolean
   markNotice: (id: number) => void
   markAllNotices: () => void
   grants: Record<UserRole, string[]>
@@ -30,6 +70,13 @@ interface ErpValue {
   logout: () => void
   transition: (id: number, action: OrderAction, note?: string) => Promise<void>
   createOrder: (input: { customerId: number; branchId: number; lines: Array<{ sku: string; quantity: number }> }) => Promise<void>
+  updateOrder: (id: number, input: { customerId: number; lines: Array<{ sku: string; quantity: number }> }) => Promise<void>
+  saveCustomer: (input: { id?: number; code: string; name: string; phone: string; branchId: number }) => Promise<void>
+  removeCustomer: (id: number) => Promise<void>
+  saveProduct: (input: { id?: number; sku: string; name: string; unitPrice: number; cost: number }) => Promise<void>
+  removeProduct: (id: number) => Promise<void>
+  adjustStock: (input: { branchId: number; sku: string; quantityDelta: number; note?: string }) => Promise<void>
+  receiveStock: (input: { branchId: number; sku: string; quantity: number; supplierRef?: string }) => Promise<void>
 }
 
 const ErpContext = createContext<ErpValue | null>(null)
@@ -42,11 +89,28 @@ function messageOf(error: unknown): string {
   return 'Không ghi nhận được thao tác.'
 }
 
+function fallbackProducts(): CatalogProduct[] {
+  return PRODUCTS.map((item) => ({
+    id: item.id,
+    sku: item.sku,
+    name: item.name,
+    unitPrice: item.unitPrice,
+    cost: item.cost,
+  }))
+}
+
 export function ErpProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
   const [inventory, setInventory] = useState<InventoryRow[]>([])
+  const [customers, setCustomers] = useState<Customer[]>(CUSTOMERS)
+  const [products, setProducts] = useState<CatalogProduct[]>(fallbackProducts)
+  const [branches, setBranches] = useState<Branch[]>(BRANCHES)
+  const [accounts, setAccounts] = useState<User[]>([])
+  const [movements, setMovements] = useState<LedgerEntry[]>([])
+  const [opsNotices, setOpsNotices] = useState<Notice[]>([])
+  const [webhookConfigured, setWebhookConfigured] = useState(false)
   const [loading, setLoading] = useState(false)
   const [branchScope, setBranchScopeState] = useState<number | 'all'>('all')
   const [readNotices, setReadNotices] = useState<number[]>([])
@@ -65,23 +129,66 @@ export function ErpProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [nextOrders, nextInventory] = await Promise.all([fetchOrders(), fetchInventory()])
+      const [nextOrders, nextInventory, nextCustomers, nextProducts, nextBranches, nextAccounts, matrix, notifications, nextMovements] = await Promise.all([
+        fetchOrders(),
+        fetchInventory(),
+        fetchCustomers(),
+        fetchProducts(),
+        fetchBranches(),
+        fetchAccounts(),
+        fetchRolesMatrix(),
+        fetchNotifications(),
+        fetchStockMovements(),
+      ])
       setOrders(nextOrders)
       setInventory(nextInventory)
+      setCustomers(nextCustomers)
+      setProducts(nextProducts.map((item) => ({
+        id: item.id,
+        sku: item.sku,
+        name: item.name,
+        unitPrice: Number(item.unitPrice),
+        cost: Number(item.cost ?? 0),
+      })))
+      setBranches(nextBranches)
+      setAccounts(nextAccounts)
+      setMovements(nextMovements)
+      setGrants(matrix.grants)
+      setOpsNotices(notifications.data)
+      setWebhookConfigured(notifications.webhook.configured)
+      if (USE_MOCK) saveGrants(matrix.grants)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    const existing = userFromToken(readToken())
-    if (!existing) {
-      setReady(true)
-      return
+    const boot = async () => {
+      const token = readToken()
+      if (!token) {
+        setReady(true)
+        return
+      }
+
+      try {
+        const existing = USE_MOCK ? userFromToken(token) : await meRequest()
+        if (!existing) {
+          writeToken(null)
+          setReady(true)
+          return
+        }
+        setUser(existing)
+        writeUser(existing)
+        setBranchScopeState(existing.branchId ?? 'all')
+        await refresh()
+      } catch {
+        writeToken(null)
+      } finally {
+        setReady(true)
+      }
     }
-    setUser(existing)
-    setBranchScopeState(existing.branchId ?? 'all')
-    void refresh().finally(() => setReady(true))
+
+    void boot()
   }, [refresh])
 
   const setBranchScope = useCallback((value: number | 'all') => {
@@ -102,23 +209,31 @@ export function ErpProvider({ children }: { children: ReactNode }) {
         orderId: order.id,
         unread: !readNotices.includes(order.id),
       }))
+    const feed = opsNotices.map((notice) => ({
+      ...notice,
+      unread: !readNotices.includes(notice.id),
+    }))
     return [
       ...downloads.map((notice) => ({ ...notice, unread: !readNotices.includes(notice.id) })),
-      ...pending,
-    ]
-  }, [orders, readNotices, downloads])
+      ...feed,
+      ...pending.filter((item) => !feed.some((notice) => notice.orderId === item.orderId && notice.title.includes('Chờ duyệt'))),
+    ].slice(0, 20)
+  }, [orders, readNotices, downloads, opsNotices])
 
   const toggleGrant = useCallback((role: UserRole, slug: string) => {
-    setGrants((current) => {
-      const has = current[role].includes(slug)
-      const nextRole = has ? current[role].filter((item) => item !== slug) : [...current[role], slug]
-      const next = { ...current, [role]: nextRole }
-      saveGrants(next)
-      setUser((account) => (account && account.role === role ? { ...account, permissions: nextRole } : account))
-      return next
-    })
-    void refresh()
-  }, [refresh])
+    const enabled = !grants[role]?.includes(slug)
+    void (async () => {
+      try {
+        const next = await patchRoleGrant(role, slug, enabled)
+        setGrants(next)
+        if (USE_MOCK) saveGrants(next)
+        setUser((account) => (account && account.role === role ? { ...account, permissions: next[role] } : account))
+        await refresh()
+      } catch (error) {
+        pushToast('err', messageOf(error))
+      }
+    })()
+  }, [grants, pushToast, refresh])
 
   const publishDownload = useCallback((notice: Notice) => {
     setDownloads((current) => [notice, ...current])
@@ -127,61 +242,94 @@ export function ErpProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const result = await loginRequest(email, password)
     writeToken(result.token)
+    writeUser(result.user)
     setUser(result.user)
     setBranchScopeState(result.user.branchId ?? 'all')
-    setLoading(true)
-    try {
-      const [nextOrders, nextInventory] = await Promise.all([fetchOrders(), fetchInventory()])
-      setOrders(nextOrders)
-      setInventory(nextInventory)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    await refresh()
+  }, [refresh])
 
   const logout = useCallback(() => {
     writeToken(null)
+    writeUser(null)
     setUser(null)
     setOrders([])
     setInventory([])
+    setAccounts([])
+    setOpsNotices([])
+    setCustomers(CUSTOMERS)
+    setProducts(fallbackProducts())
+    setBranches(BRANCHES)
     setBranchScopeState('all')
   }, [])
 
-  const createOrder = useCallback(async (input: { customerId: number; branchId: number; lines: Array<{ sku: string; quantity: number }> }) => {
+  const runMutation = useCallback(async (work: () => Promise<void>, okMessage: string) => {
     try {
-      const created = await createOrderRequest(input)
-      const [nextOrders, nextInventory] = await Promise.all([fetchOrders(), fetchInventory()])
-      setOrders(nextOrders)
-      setInventory(nextInventory)
-      pushToast('ok', `${created.code} đã được tạo ở trạng thái nháp.`)
+      await work()
+      await refresh()
+      pushToast('ok', okMessage)
     } catch (error) {
       pushToast('err', messageOf(error))
       throw error
     }
-  }, [pushToast])
+  }, [pushToast, refresh])
+
+  const createOrder = useCallback(async (input: { customerId: number; branchId: number; lines: Array<{ sku: string; quantity: number }> }) => {
+    const created = await createOrderRequest(input)
+    await refresh()
+    pushToast('ok', `${created.code} đã được tạo ở trạng thái nháp.`)
+  }, [pushToast, refresh])
+
+  const updateOrder = useCallback(async (id: number, input: { customerId: number; lines: Array<{ sku: string; quantity: number }> }) => {
+    const updated = await updateOrderRequest(id, input)
+    await refresh()
+    pushToast('ok', `${updated.code} đã được cập nhật.`)
+  }, [pushToast, refresh])
 
   const transition = useCallback(async (id: number, action: OrderAction, note?: string) => {
-    try {
-      const updated = await transitionRequest(id, action, note)
-      const [nextOrders, nextInventory] = await Promise.all([fetchOrders(), fetchInventory()])
-      setOrders(nextOrders)
-      setInventory(nextInventory)
-      pushToast('ok', `${updated.code} đã được ghi nhận.`)
-    } catch (error) {
-      pushToast('err', messageOf(error))
-      throw error
-    }
-  }, [pushToast])
+    const updated = await transitionRequest(id, action, note)
+    await refresh()
+    pushToast('ok', `${updated.code} đã được ghi nhận.`)
+  }, [pushToast, refresh])
+
+  const saveCustomer = useCallback(async (input: { id?: number; code: string; name: string; phone: string; branchId: number }) => {
+    await runMutation(async () => { await saveCustomerRequest(input) }, input.id ? 'Đã cập nhật khách hàng.' : 'Đã thêm khách hàng.')
+  }, [runMutation])
+
+  const removeCustomer = useCallback(async (id: number) => {
+    await runMutation(async () => { await deleteCustomerRequest(id) }, 'Đã xóa khách hàng.')
+  }, [runMutation])
+
+  const saveProduct = useCallback(async (input: { id?: number; sku: string; name: string; unitPrice: number; cost: number }) => {
+    await runMutation(async () => { await saveProductRequest(input) }, input.id ? 'Đã cập nhật sản phẩm.' : 'Đã thêm sản phẩm.')
+  }, [runMutation])
+
+  const removeProduct = useCallback(async (id: number) => {
+    await runMutation(async () => { await deleteProductRequest(id) }, 'Đã xóa sản phẩm.')
+  }, [runMutation])
+
+  const adjustStock = useCallback(async (input: { branchId: number; sku: string; quantityDelta: number; note?: string }) => {
+    await runMutation(async () => { await adjustStockRequest(input) }, 'Đã ghi điều chỉnh kho.')
+  }, [runMutation])
+
+  const receiveStock = useCallback(async (input: { branchId: number; sku: string; quantity: number; supplierRef?: string }) => {
+    await runMutation(async () => { await receiveStockRequest(input) }, 'Đã nhập kho NCC.')
+  }, [runMutation])
 
   const value = useMemo<ErpValue>(() => ({
     user,
     ready,
     orders,
     inventory,
+    customers,
+    products,
+    branches,
+    accounts,
+    movements,
     loading,
     branchScope: user?.branchId ?? branchScope,
     setBranchScope,
     notices,
+    webhookConfigured,
     markNotice: (id) => setReadNotices((current) => (current.includes(id) ? current : [...current, id])),
     markAllNotices: () => setReadNotices((current) => [...new Set([...current, ...notices.map((notice) => notice.id)])]),
     grants,
@@ -192,7 +340,14 @@ export function ErpProvider({ children }: { children: ReactNode }) {
     logout,
     transition,
     createOrder,
-  }), [user, ready, orders, inventory, loading, branchScope, setBranchScope, notices, grants, toggleGrant, publishDownload, toasts, login, logout, transition, createOrder])
+    updateOrder,
+    saveCustomer,
+    removeCustomer,
+    saveProduct,
+    removeProduct,
+    adjustStock,
+    receiveStock,
+  }), [user, ready, orders, inventory, customers, products, branches, accounts, movements, loading, branchScope, setBranchScope, notices, webhookConfigured, grants, toggleGrant, publishDownload, toasts, login, logout, transition, createOrder, updateOrder, saveCustomer, removeCustomer, saveProduct, removeProduct, adjustStock, receiveStock])
 
   return <ErpContext.Provider value={value}>{children}</ErpContext.Provider>
 }

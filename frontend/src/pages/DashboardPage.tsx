@@ -1,16 +1,14 @@
 import * as Popover from '@radix-ui/react-popover'
-import { CalendarRange, Loader2, Lock, Plus, Search, Trash2 } from 'lucide-react'
+import { CalendarRange, Lock, Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AuditModalWithReason } from '../components/orders/AuditModalWithReason.tsx'
+import { OrderDraftDialog } from '../components/orders/OrderDraftDialog.tsx'
 import { StatusBadge } from '../components/orders/StatusBadge.tsx'
 import { Button } from '../components/ui/button.tsx'
-import { Dialog, DialogContent } from '../components/ui/dialog.tsx'
 import { Input } from '../components/ui/input.tsx'
 import { Select } from '../components/ui/select.tsx'
 import { useErp } from '../context/ErpContext.tsx'
-import { BRANCHES, PRODUCTS } from '../data/catalog.ts'
-import { CUSTOMERS } from '../data/customers.ts'
 import { dashboardMetrics, funnelSteps, rangeBounds, scopedOrders, stockLedger } from '../lib/dashboard.ts'
 import { dayKey, formatMoney, formatPercent, formatQty, formatStamp } from '../lib/format.ts'
 import { actionsFor } from '../lib/status.ts'
@@ -41,7 +39,7 @@ const LEDGER_TONE: Record<LedgerKind, string> = {
 }
 
 export function DashboardPage() {
-  const { user, orders, inventory, branchScope, setBranchScope, transition, createOrder } = useErp()
+  const { user, orders, inventory, branchScope, setBranchScope, transition, createOrder, branches, movements } = useErp()
   const locked = user?.branchId != null
   const initial = rangeBounds('month')
   const [preset, setPreset] = useState<RangeKey>('month')
@@ -51,13 +49,7 @@ export function DashboardPage() {
   const [pulsing, setPulsing] = useState(false)
   const [rejecting, setRejecting] = useState<Order | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
   const [draftOpen, setDraftOpen] = useState(false)
-  const [customerId, setCustomerId] = useState('')
-  const [lines, setLines] = useState<Array<{ key: string; sku: string; quantity: string }>>([
-    { key: 'line-1', sku: PRODUCTS[0]?.sku ?? '', quantity: '1' },
-  ])
-  const [draftBranch, setDraftBranch] = useState(user?.branchId ?? BRANCHES[0]?.id ?? 1)
 
   useEffect(() => {
     if (!pulsing) return undefined
@@ -72,8 +64,8 @@ export function DashboardPage() {
   )
   const funnel = useMemo(() => funnelSteps(visible), [visible])
   const ledger = useMemo(
-    () => stockLedger(orders, inventory, branchScope, from, to),
-    [orders, inventory, branchScope, from, to],
+    () => stockLedger(orders, inventory, branchScope, from, to, movements),
+    [orders, inventory, branchScope, from, to, movements],
   )
   const branchOrders = useMemo(
     () => orders.filter((order) => branchScope === 'all' || order.branchId === branchScope),
@@ -125,35 +117,6 @@ export function DashboardPage() {
     }
   }
 
-  async function submitDraft() {
-    if (creating) return
-    setCreating(true)
-    try {
-      await createOrder({
-        customerId: Number(customerId),
-        branchId: locked ? (user?.branchId ?? draftBranch) : draftBranch,
-        lines: lines.map((line) => ({ sku: line.sku, quantity: Number(line.quantity) })),
-      })
-      setDraftOpen(false)
-      setCustomerId('')
-      setLines([{ key: crypto.randomUUID(), sku: PRODUCTS[0]?.sku ?? '', quantity: '1' }])
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  const draftBranchId = locked ? (user?.branchId ?? draftBranch) : draftBranch
-  const branchCustomers = CUSTOMERS.filter((item) => item.branchId === draftBranchId)
-  const draftLines = lines.map((line) => {
-    const stock = inventory.find((row) => row.branchId === draftBranchId && row.sku === line.sku)
-    const available = stock ? stock.onHand - stock.reserved : 0
-    const qty = Number(line.quantity)
-    const duplicate = lines.filter((item) => item.sku === line.sku).length > 1
-    const taken = lines.filter((item) => item.sku === line.sku).reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-    return { ...line, available, qty, duplicate, over: !Number.isInteger(qty) || qty < 1 || taken > available }
-  })
-  const draftInvalid = customerId === '' || draftLines.some((line) => line.duplicate || line.over)
-
   return (
     <div className="space-y-5 p-4 lg:p-6">
       <section className="flex flex-wrap items-center gap-2">
@@ -169,7 +132,7 @@ export function DashboardPage() {
             onChange={(event) => changeBranch(event.target.value)}
           >
             <option value="all">Tất cả chi nhánh</option>
-            {BRANCHES.map((branch) => (
+            {branches.map((branch) => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>
             ))}
           </Select>
@@ -217,7 +180,7 @@ export function DashboardPage() {
           />
         </div>
         {user?.permissions.includes('orders.create') ? (
-          <Button className="h-10 rounded-full bg-ink px-4 text-[12px] text-white hover:bg-black" onClick={() => { setDraftBranch(branchScope === 'all' ? (user.branchId ?? BRANCHES[0]?.id ?? 1) : branchScope); setDraftOpen(true) }}>
+          <Button className="h-10 rounded-full bg-ink px-4 text-[12px] text-white hover:bg-black" onClick={() => setDraftOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             Tạo đơn hàng mới
           </Button>
@@ -382,146 +345,11 @@ export function DashboardPage() {
         onConfirm={(note) => { if (rejecting) void run(rejecting, 'reject', note) }}
       />
 
-      <Dialog open={draftOpen} onOpenChange={(open) => { if (!creating) setDraftOpen(open) }}>
-        <DialogContent wide title="Tạo đơn hàng mới" description="Chọn khách trong danh sách và thêm một hoặc nhiều sản phẩm. Đơn được ghi ở trạng thái nháp.">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void submitDraft()
-            }}
-          >
-            {locked ? null : (
-              <>
-                <label className="mb-1 block text-[12px] font-medium text-slate-600" htmlFor="draft-branch">Chi nhánh</label>
-                <Select
-                  id="draft-branch"
-                  className="w-full"
-                  value={draftBranch}
-                  disabled={creating}
-                  onChange={(event) => {
-                    const next = Number(event.target.value)
-                    setDraftBranch(next)
-                    setCustomerId((current) => (CUSTOMERS.some((item) => String(item.id) === current && item.branchId === next) ? current : ''))
-                  }}
-                >
-                  {BRANCHES.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-                </Select>
-              </>
-            )}
-            <label className="mb-1 mt-3 block text-[12px] font-medium text-slate-600" htmlFor="draft-customer">Khách hàng</label>
-            <Select id="draft-customer" className="w-full" value={customerId} required disabled={creating} onChange={(event) => setCustomerId(event.target.value)}>
-              <option value="">Chọn khách hàng</option>
-              {branchCustomers.map((customer) => (
-                <option key={customer.id} value={customer.id}>{customer.code} · {customer.name}</option>
-              ))}
-            </Select>
-            <div className="mt-3 flex items-center justify-between">
-              <p className="text-[12px] font-medium text-slate-600">Sản phẩm</p>
-              <button
-                type="button"
-                className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-[12px] font-medium text-ink hover:bg-[#f5f6f8] disabled:opacity-40"
-                disabled={creating || lines.length >= PRODUCTS.length}
-                onClick={() => {
-                  const used = new Set(lines.map((line) => line.sku))
-                  const next = PRODUCTS.find((product) => !used.has(product.sku)) ?? PRODUCTS[0]
-                  if (!next) return
-                  setLines((current) => [...current, { key: crypto.randomUUID(), sku: next.sku, quantity: '1' }])
-                }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Thêm sản phẩm
-              </button>
-            </div>
-            <div className="mt-2 space-y-2">
-              {draftLines.map((line, index) => (
-                <div key={line.key}>
-                  <div className="grid grid-cols-[minmax(0,1fr)_88px_32px] gap-2">
-                    <Select
-                      aria-label={`Sản phẩm ${index + 1}`}
-                      className="w-full"
-                      value={line.sku}
-                      disabled={creating}
-                      onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, sku: event.target.value } : item))}
-                    >
-                      {PRODUCTS.map((product) => <option key={product.sku} value={product.sku}>{product.sku} · {product.name}</option>)}
-                    </Select>
-                    <Input
-                      aria-label={`Số lượng ${index + 1}`}
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={line.quantity}
-                      disabled={creating}
-                      className="text-right"
-                      onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, quantity: event.target.value } : item))}
-                    />
-                    <button
-                      type="button"
-                      className="flex h-9 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"
-                      aria-label={`Xóa dòng ${index + 1}`}
-                      disabled={creating || lines.length === 1}
-                      onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <p className={cn('mt-1 text-[12px]', line.duplicate || line.over ? 'text-rose-600' : 'text-slate-500')}>
-                    {line.duplicate
-                      ? 'Sản phẩm này đã có trên đơn.'
-                      : line.over
-                        ? `Khả dụng ${Math.max(0, line.available)}. Vượt tồn, chưa tạo được đơn.`
-                        : `Khả dụng ${line.available}`}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="outline" disabled={creating} onClick={() => setDraftOpen(false)}>Quay lại</Button>
-              <Button type="submit" disabled={creating || draftInvalid}>
-                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                {creating ? 'Đang ghi nhận...' : 'Tạo đơn nháp'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-function Kpi({ label, value, note, noteClass, bars, barClass }: {
-  label: string
-  value: string
-  note: string
-  noteClass: string
-  bars: number[]
-  barClass?: string
-}) {
-  return (
-    <article className="flex min-w-0 items-center justify-between gap-3 rounded-[20px] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
-      <div className="min-w-0">
-        <p className="text-[13px] text-slate-400">{label}</p>
-        <p className="mt-2 truncate text-[22px] font-bold leading-none tracking-tight text-ink xl:text-[26px]">{value}</p>
-        <p className={cn('mt-2 text-[12px] font-medium', noteClass)}>{note}</p>
-      </div>
-      <MiniBars values={bars} barClass={barClass} />
-    </article>
-  )
-}
-
-const BAR_COLORS = ['bg-[#3ddc97]', 'bg-[#f6c445]', 'bg-[#5b8cff]', 'bg-[#f07167]', 'bg-[#7bd3c6]', 'bg-[#f3b23a]', 'bg-[#6aa2ff]']
-
-function MiniBars({ values, barClass }: { values: number[]; barClass?: string }) {
-  const max = Math.max(...values, 1)
-  return (
-    <div className="flex h-14 items-end gap-1" aria-hidden="true">
-      {values.map((value, index) => (
-        <span
-          key={index}
-          className={cn('w-1.5 rounded-full', barClass ?? BAR_COLORS[index % BAR_COLORS.length])}
-          style={{ height: `${Math.max(value === 0 ? 8 : 18, (value / max) * 100)}%` }}
-        />
-      ))}
+      <OrderDraftDialog
+        open={draftOpen}
+        onClose={() => setDraftOpen(false)}
+        onSubmit={async (input) => { await createOrder(input) }}
+      />
     </div>
   )
 }
@@ -534,6 +362,40 @@ function dailySeries(orders: Order[], score: (order: Order) => number): number[]
     const key = dayKey(date.toISOString())
     return orders.filter((order) => dayKey(order.createdAt) === key).reduce((sum, order) => sum + score(order), 0)
   })
+}
+
+function Kpi({
+  label,
+  value,
+  bars,
+  note,
+  noteClass,
+  barClass = 'bg-ink',
+}: {
+  label: string
+  value: string
+  bars: number[]
+  note: string
+  noteClass: string
+  barClass?: string
+}) {
+  const peak = Math.max(...bars, 1)
+  return (
+    <article className="rounded-[20px] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+      <p className="text-[12px] font-medium text-slate-400">{label}</p>
+      <p className="mt-2 text-[28px] font-semibold tracking-tight text-ink">{value}</p>
+      <div className="mt-4 flex h-10 items-end gap-1">
+        {bars.map((bar, index) => (
+          <div
+            key={index}
+            className={cn('min-w-0 flex-1 rounded-t-sm', barClass)}
+            style={{ height: `${bar === 0 ? 8 : Math.max((bar / peak) * 100, 12)}%` }}
+          />
+        ))}
+      </div>
+      <p className={cn('mt-3 text-[12px]', noteClass)}>{note}</p>
+    </article>
+  )
 }
 
 function DashboardSkeleton() {

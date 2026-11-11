@@ -18,14 +18,20 @@ class InventoryResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'branchId' => $this->branch_id,
             'branch_id' => $this->branch_id,
+            'branchName' => $this->whenLoaded('branch', fn (): string => $this->branch->name, ''),
             'product_id' => $this->product_id,
+            'sku' => $this->whenLoaded('product', fn (): string => $this->product->sku, ''),
+            'productName' => $this->whenLoaded('product', fn (): string => $this->product->name, ''),
             'product' => $this->whenLoaded('product', fn (): array => [
                 'id' => $this->product->id,
                 'sku' => $this->product->sku,
                 'name' => $this->product->name,
                 'unit' => $this->product->unit,
             ]),
+            'onHand' => $this->physical_quantity,
+            'reserved' => $this->reserved_quantity,
             'physical_quantity' => $this->physical_quantity,
             'reserved_quantity' => $this->reserved_quantity,
             'available_quantity' => $this->availableQuantity(),

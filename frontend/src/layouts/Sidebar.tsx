@@ -1,7 +1,6 @@
 import { Boxes, ClipboardList, Contact, LayoutDashboard, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { Select } from '../components/ui/select.tsx'
-import { BRANCHES } from '../data/catalog.ts'
 import { cn } from '../lib/utils.ts'
 import { useErp } from '../context/ErpContext.tsx'
 
@@ -26,7 +25,7 @@ const GROUPS = [
 ]
 
 export function Sidebar({ collapsed, onToggle, mobileOpen, onClose }: { collapsed: boolean; onToggle: () => void; mobileOpen: boolean; onClose: () => void }) {
-  const { user, branchScope, setBranchScope } = useErp()
+  const { user, branchScope, setBranchScope, branches } = useErp()
   const locked = user?.branchId != null
 
   return (
@@ -79,7 +78,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onClose }: { collapse
             onChange={(event) => setBranchScope(event.target.value === 'all' ? 'all' : Number(event.target.value))}
           >
             <option value="all">Tất cả chi nhánh</option>
-            {BRANCHES.map((branch) => (
+            {branches.map((branch) => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>
             ))}
           </Select>

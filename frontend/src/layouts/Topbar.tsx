@@ -6,7 +6,7 @@ import { useErp } from '../context/ErpContext.tsx'
 export function Topbar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () => void }) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const { user, orders, notices, markNotice, markAllNotices, logout } = useErp()
+  const { user, orders, notices, markNotice, markAllNotices, logout, webhookConfigured } = useErp()
   const orderKey = pathname.match(/^\/orders\/([^/]+)/)?.[1]
   const order = orders.find((item) => item.code === orderKey || String(item.id) === orderKey)
   const unread = notices.filter((notice) => notice.unread).length
@@ -54,17 +54,24 @@ export function Topbar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () 
               <span className="text-[12px] font-semibold text-slate-500">Thông báo</span>
               <button type="button" className="text-[11px] text-ink" onClick={markAllNotices}>Đã xem</button>
             </div>
+            <p className="px-2 pb-1 text-[11px] text-slate-400">
+              Telegram: {webhookConfigured ? 'đã cấu hình' : 'chưa cấu hình (chỉ ghi trong app)'}
+            </p>
             {notices.length === 0 ? <p className="px-2 py-3 text-[12px] text-slate-500">Không có thông báo.</p> : null}
             {notices.map((notice) => (
               <MenuItem
                 key={notice.id}
                 onSelect={() => {
                   markNotice(notice.id)
-                  if (notice.href) {
+                  if (notice.download || notice.href?.startsWith('blob:')) {
                     const anchor = document.createElement('a')
-                    anchor.href = notice.href
+                    anchor.href = notice.href ?? '#'
                     anchor.download = notice.download ?? 'so-cai-kho.xls'
                     anchor.click()
+                    return
+                  }
+                  if (notice.href?.startsWith('/')) {
+                    navigate(notice.href)
                     return
                   }
                   if (notice.orderId) {

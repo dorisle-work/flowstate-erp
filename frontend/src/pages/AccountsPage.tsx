@@ -1,7 +1,6 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { CompactDataTable } from '../components/orders/CompactDataTable.tsx'
-import { BRANCHES, USERS } from '../data/catalog.ts'
 import { useErp } from '../context/ErpContext.tsx'
 import { cn } from '../lib/utils.ts'
 import type { UserRole } from '../types/index.ts'
@@ -25,9 +24,9 @@ const ROLES: Array<{ id: UserRole | 'all'; label: string }> = [
 ]
 
 export function AccountsPage() {
-  const { grants } = useErp()
+  const { grants, accounts, branches } = useErp()
   const [role, setRole] = useState<UserRole | 'all'>('all')
-  const rows = useMemo<AccountRow[]>(() => USERS
+  const rows = useMemo<AccountRow[]>(() => accounts
     .filter((account) => role === 'all' || account.role === role)
     .map((account) => ({
       id: account.id,
@@ -35,9 +34,9 @@ export function AccountsPage() {
       email: account.email,
       role: account.role,
       roleLabel: account.roleLabel,
-      branchName: BRANCHES.find((branch) => branch.id === account.branchId)?.name ?? 'Toàn hệ thống',
-      grants: grants[account.role].length,
-    })), [role, grants])
+      branchName: branches.find((branch) => branch.id === account.branchId)?.name ?? 'Toàn hệ thống',
+      grants: (grants[account.role] ?? account.permissions).length,
+    })), [role, grants, accounts, branches])
 
   const columns = useMemo<ColumnDef<AccountRow>[]>(() => [
     {

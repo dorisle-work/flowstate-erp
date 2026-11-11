@@ -20,5 +20,10 @@ class BranchSeeder extends Seeder
             ['code' => 'HCM'],
             ['name' => 'TP.HCM', 'address' => '45 Lê Duẩn, Quận 1, TP.HCM'],
         );
+
+        Branch::query()->updateOrCreate(
+            ['code' => 'DN'],
+            ['name' => 'Đà Nẵng', 'address' => '12 Trần Phú, Hải Châu, Đà Nẵng'],
+        );
     }
 }

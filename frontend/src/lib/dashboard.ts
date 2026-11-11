@@ -105,7 +105,12 @@ export function funnelSteps(orders: Order[]): FunnelStep[] {
   }))
 }
 
-export function ledgerEntries(orders: Order[], inventory: InventoryRow[], branchId: number | 'all'): LedgerEntry[] {
+export function ledgerEntries(
+  orders: Order[],
+  inventory: InventoryRow[],
+  branchId: number | 'all',
+  extras: LedgerEntry[] = [],
+): LedgerEntry[] {
   const rows = inventory.filter((row) => branchId === 'all' || row.branchId === branchId)
   const entries: LedgerEntry[] = []
 
@@ -159,11 +164,19 @@ export function ledgerEntries(orders: Order[], inventory: InventoryRow[], branch
     }
   }
 
-  return entries.sort((a, b) => b.at.localeCompare(a.at))
+  const scopedExtras = extras.filter((entry) => branchId === 'all' || entry.branchId === branchId)
+  return [...scopedExtras, ...entries].sort((a, b) => b.at.localeCompare(a.at))
 }
 
-export function stockLedger(orders: Order[], inventory: InventoryRow[], branchId: number | 'all', from: string, to: string): LedgerEntry[] {
-  return ledgerEntries(orders, inventory, branchId)
+export function stockLedger(
+  orders: Order[],
+  inventory: InventoryRow[],
+  branchId: number | 'all',
+  from: string,
+  to: string,
+  extras: LedgerEntry[] = [],
+): LedgerEntry[] {
+  return ledgerEntries(orders, inventory, branchId, extras)
     .filter((entry) => inRange(entry.at, from, to))
     .slice(0, 8)
 }
