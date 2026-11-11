@@ -6,6 +6,9 @@
     RewriteEngine On
     RewriteBase /
 
+    # Prefer FlowState SVG favicon over the default Laravel .ico
+    RewriteRule ^favicon\.ico$ favicon.svg [L]
+
     # Block direct HTTP access to the Laravel app tree (Hostinger public_html layout).
     RewriteRule ^laravel(/|$) - [F,L]
 
